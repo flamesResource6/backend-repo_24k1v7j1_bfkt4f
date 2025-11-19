@@ -1,9 +1,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-from bson import ObjectId
+from typing import Optional, List
 
 app = FastAPI(title="Event Organizing Company API")
 
@@ -54,14 +52,69 @@ def list_team(team: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Inquiries
-class InquiryPayload(Inquiry):
-    pass
-
 @app.post("/api/inquiries")
-def create_inquiry(payload: InquiryPayload):
+def create_inquiry(payload: Inquiry):
     try:
         _id = create_document("inquiry", payload)
         return {"id": _id, "status": "received"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Optional: simple admin list of inquiries (limit for safety)
+@app.get("/api/inquiries")
+def list_inquiries(limit: int = 20):
+    try:
+        items = get_documents("inquiry", {}, min(max(limit, 1), 100))
+        return [to_str_id(d) for d in items]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Seeder endpoint to populate initial data
+@app.post("/api/seed")
+def seed_data():
+    """
+    Inserts sample Services and Team members if collections are empty.
+    Safe to call multiple times – only seeds when no documents exist.
+    """
+    try:
+        collections = db.list_collection_names() if db else []
+        seeded = {"service": 0, "teammember": 0}
+
+        # Seed Services if empty
+        service_empty = True
+        try:
+            service_empty = len(get_documents("service", {}, 1)) == 0
+        except Exception:
+            pass
+        if service_empty:
+            samples: List[Service] = [
+                Service(title="Wedding Planning", description="End-to-end planning, decor, coordination", category="Events", featured=True),
+                Service(title="Corporate Events", description="Conferences, summits, award nights", category="Events", featured=True),
+                Service(title="Media Production", description="Photo, video, live streaming, aftermovies", category="Media"),
+                Service(title="Outreach & Marketing", description="Influencers, sponsorships, community programs", category="Outreach"),
+            ]
+            for s in samples:
+                create_document("service", s)
+                seeded["service"] += 1
+
+        # Seed Team if empty
+        team_empty = True
+        try:
+            team_empty = len(get_documents("teammember", {}, 1)) == 0
+        except Exception:
+            pass
+        if team_empty:
+            members: List[TeamMember] = [
+                TeamMember(name="Aisha Khan", role="Head of Events", team="Events"),
+                TeamMember(name="Rohit Verma", role="Media Director", team="Media"),
+                TeamMember(name="Sara Lee", role="Outreach Lead", team="Outreach"),
+                TeamMember(name="David Chen", role="Operations Manager", team="Operations"),
+            ]
+            for m in members:
+                create_document("teammember", m)
+                seeded["teammember"] += 1
+
+        return {"seeded": seeded}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
